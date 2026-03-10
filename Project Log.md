@@ -145,6 +145,70 @@ Log loss measures how confident AND correct your predictions are. If you predict
 
 ---
 
+### Session 3 — [DATE: 2026-03-10]
+**What we did:**
+- MAJOR PIVOT: Decided to build custom neural network ("MarchNet") instead of traditional ML
+- Rationale: ESPN/538 already tried XGBoost-style approaches and hit the same ceiling.
+  Everyone doing the same thing = race to the middle. Neural net can find non-obvious patterns.
+- Solved the "not enough data" problem: train on ALL regular season games (100k+), not just tournaments
+- Designed 4-component architecture:
+  1. **Team Encoder**: raw stats → 512-dim embedding (shared weights for all teams)
+  2. **Game Processor**: GRU-based sequential updater (evolves embeddings game-by-game through season)
+  3. **Attention Matchup Layer**: multi-head attention finds which past games are relevant for a SPECIFIC opponent
+  4. **Prediction Head**: matchup-aware embeddings → win probability → aggressive shrinkage
+- Chose PyTorch as framework (most readable, best for custom architectures, industry standard)
+- Built and documented full architecture specification
+- Wrote first code: preprocessing pipeline, Team Encoder, Game Processor
+- Code tested successfully (shapes verified)
+
+**Key decisions:**
+- Neural network over traditional ML — go for the magic, not the ceiling
+- PyTorch framework
+- 512-dimensional embeddings (high-dim to capture nuance)
+- 3-phase training: pretrain on regular season → finetune on tournaments → calibrate shrinkage
+- GRU over LSTM (simpler, fewer params, good enough for ~30-game sequences)
+- Sequential game processing (NOT static season averages — this is a key differentiator)
+- Matchup-specific attention (which of my past games matter for THIS opponent?)
+
+**Architecture summary:**
+```
+Team A stats → [Encoder] → 512-dim → [GRU processes 30 games] → refined embedding
+                                                                      ↓
+                                                    [Attention: "which A games matter for B?"]
+                                                                      ↓
+                                                              [Prediction Head] → probability
+                                                                      ↑
+                                                    [Attention: "which B games matter for A?"]
+                                                                      ↑
+Team B stats → [Encoder] → 512-dim → [GRU processes 30 games] → refined embedding
+```
+
+**Files created this session:**
+- `docs/ARCHITECTURE.md` — Full neural network specification with data flow examples
+- `src/data/preprocessing.py` — CSV loading, per-game feature computation, season sequencing, normalization
+- `src/models/team_encoder.py` — Component 1: stats → 512-dim embedding
+- `src/models/game_processor.py` — Component 2: GRU sequential updater with learned game importance
+- Updated `requirements.txt` with PyTorch stack
+
+**Still need to build:**
+- `src/models/attention_matchup.py` — Component 3: multi-head attention layer
+- `src/models/prediction_head.py` — Component 4: embedding → win probability
+- `src/models/marchnet.py` — Full model combining all components
+- `src/training/pretrain.py` — Phase 1 training loop
+- `src/training/finetune.py` — Phase 2 tournament fine-tuning
+- `src/training/calibrate.py` — Phase 3 shrinkage calibration
+- `src/predict/generate_submission.py` — Produce Kaggle submission CSV
+
+**Next session — TODO:**
+- [ ] Upload Kaggle data files (all 35 CSVs) 
+- [ ] Build Attention Matchup Layer (Component 3)
+- [ ] Build Prediction Head (Component 4)
+- [ ] Combine into full MarchNet model
+- [ ] Run preprocessing on actual data to verify pipeline works end-to-end
+- [ ] Begin Phase 1 pre-training on regular season games
+
+---
+
 *Add new sessions below this line. Copy the session template:*
 
 ### Session N — [DATE: YYYY-MM-DD]
@@ -158,6 +222,6 @@ Log loss measures how confident AND correct your predictions are. If you predict
 - 
 
 **Next session — TODO:**
-- [ ] 
+- [ ]
 
 ---
