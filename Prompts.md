@@ -13,3 +13,28 @@ I want to think more, I'm coming from the perspective that this predicting is pr
 
 
 Explain what you are thinking more? I want the teams to be embedded by their performance metrics, then the "attention" in this neural network would be how they performed against the other teams they had already played that season so we step through each game every season predicting the winner of matchups learn from that move up a game then add attention based on past matchups. I want the vector embeddings to be very high dimensionally
+
+march-madness-2026/
+├── configs/default.yaml        # Hyperparameters
+├── data/{raw,processed,submissions}/
+├── docs/{ARCHITECTURE,STRATEGY,PROMPTS}.md
+├── src/
+│   ├── data/preprocessing.py   # ✅ Fixed
+│   ├── models/
+│   │   ├── team_encoder.py     # ✅ Improved
+│   │   ├── game_processor.py   # ✅ Fixed
+│   │   ├── attention_matchup.py # 🆕 NEW
+│   │   ├── prediction_head.py   # 🆕 NEW
+│   │   └── marchnet.py          # 🆕 NEW
+│   └── training/pretrain.py     # 🆕 NEW
+├── PROJECT_LOG.md
+├── README.md
+└── requirements.txt            # ✅ Fixed
+
+⏭️ Next Steps
+
+Download the zip and replace your GitHub repo contents
+Download Kaggle data into data/raw/
+Run preprocessing: python -m src.data.preprocessing data/raw/
+Run pre-training: python -m src.training.pretrain --epochs 20
+Still need: finetune.py, calibrate.py, generate_submission.py
