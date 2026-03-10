@@ -1,64 +1,183 @@
-# March Machine Learning Mania 2026
+# 🏀 March Machine Learning Mania 2026
 
-Kaggle competition to predict NCAA March Madness tournament outcomes for both men's and women's brackets.
+Neural network approach to predicting NCAA March Madness tournament outcomes.
 
-**Competition:** [March Machine Learning Mania 2026](https://www.kaggle.com/competitions/march-machine-learning-mania-2026)  
-**Sponsor:** Google LLC  
-**Prize Pool:** $50,000 (8 winners)  
-**Data License:** CC-BY 4.0  
+**Competition:** [Kaggle March Machine Learning Mania 2026](https://www.kaggle.com/competitions/march-machine-learning-mania-2026)  
+**Prize Pool:** $50,000  
+**Evaluation:** Log Loss (lower is better)
 
-## Goal
+---
 
-Build two separate models (men's + women's) that predict the probability of Team A beating Team B for every possible tournament matchup. Submissions are evaluated on log loss.
+## 🎯 Our Approach: MarchNet
 
-## Project Structure
+Instead of traditional ML (XGBoost, logistic regression), we built a custom neural network that:
+
+1. **Learns sequential context** — Processes games chronologically through the season using a GRU, so the model understands a team's journey (early struggles, late-season run, etc.)
+
+2. **Uses matchup-specific attention** — For Duke vs Kansas, the model attends over Duke's game history asking "which of Duke's games are most relevant for playing against Kansas?" (Maybe their game vs Baylor, a similar team)
+
+3. **Aggressively calibrates** — March Madness is chaotic. We shrink all predictions toward 50% to avoid catastrophic log loss penalties from confident wrong predictions.
+
+---
+
+## 📁 Project Structure
 
 ```
 march-madness-2026/
+├── configs/                 # Hyperparameters (YAML)
+│   └── default.yaml
 ├── data/
-│   ├── raw/              # Original Kaggle CSVs (not tracked in git)
-│   ├── processed/        # Cleaned & feature-engineered datasets
-│   └── submissions/      # Generated submission CSVs
-├── notebooks/            # Jupyter notebooks for exploration & modeling
+│   ├── raw/                 # Kaggle CSVs (download separately)
+│   ├── processed/           # Preprocessed tensors
+│   └── submissions/         # Generated submission CSVs
+├── docs/
+│   ├── ARCHITECTURE.md      # Neural network specification
+│   ├── STRATEGY.md          # Competition strategy
+│   └── PROMPTS.md           # AI prompts used during development
+├── notebooks/               # Jupyter exploration notebooks
 ├── src/
-│   ├── features/         # Feature engineering scripts
-│   ├── models/           # Model training & prediction scripts
-│   └── utils/            # Helper functions (data loading, etc.)
-├── docs/                 # Project documentation
-├── tests/                # Unit tests
-├── PROJECT_LOG.md        # Session-by-session progress tracker
-├── README.md             # This file
-├── requirements.txt      # Python dependencies
-└── .gitignore            # Files to exclude from git
+│   ├── data/
+│   │   └── preprocessing.py # CSV → model-ready data
+│   ├── models/
+│   │   ├── team_encoder.py      # Component 1: stats → embeddings
+│   │   ├── game_processor.py    # Component 2: GRU sequential updater
+│   │   ├── attention_matchup.py # Component 3: multi-head attention
+│   │   ├── prediction_head.py   # Component 4: → win probability
+│   │   └── marchnet.py          # Full combined model
+│   ├── training/            # Training scripts
+│   └── utils/               # Helper functions
+├── tests/                   # Unit tests
+├── PROJECT_LOG.md           # Session-by-session progress
+├── requirements.txt         # Python dependencies
+└── README.md                # This file
 ```
 
-## Quick Start
+---
+
+## 🚀 Quick Start
+
+### 1. Clone and Setup
 
 ```bash
-# Clone the repo
-git clone https://github.com/YOUR_USERNAME/march-madness-2026.git
-cd march-madness-2026
+git clone https://github.com/ai-bryguy101/March-Machine-Learning.git
+cd March-Machine-Learning
 
-# Set up Python environment
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Mac/Linux
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
-
-# Download data from Kaggle and place CSVs in data/raw/
-
-# Run notebooks in order (once created)
 ```
 
-## Approach Overview
+### 2. Download Data
 
-See `PROJECT_LOG.md` for detailed session notes. High-level plan:
+Download the competition data from Kaggle and place all CSVs in `data/raw/`:
 
-1. **Explore** — Understand the data, find patterns, visualize trends
-2. **Engineer Features** — Build team-level stats (offensive/defensive ratings, strength of schedule, etc.)
-3. **Train Models** — Start simple (logistic regression), iterate toward ensemble methods
-4. **Validate** — Use 2022-2025 tournament results (Stage 1) to test predictions
-5. **Submit** — Generate Stage 2 predictions for the 2026 tournament
+```bash
+# Using Kaggle CLI (install with: pip install kaggle)
+kaggle competitions download -c march-machine-learning-mania-2026
+unzip march-machine-learning-mania-2026.zip -d data/raw/
+```
 
-## Tools & AI Usage
+### 3. Preprocess Data
 
-This project uses AI assistance (Claude, Cursor) for code generation, data analysis, and learning ML concepts. All tools used are publicly available and meet the competition's Reasonableness Standard for external tools.
+```bash
+python -m src.data.preprocessing data/raw/
+```
+
+### 4. Train Model
+
+```bash
+# Coming soon - training scripts
+python -m src.training.pretrain --config configs/default.yaml
+python -m src.training.finetune --config configs/default.yaml
+python -m src.training.calibrate --config configs/default.yaml
+```
+
+### 5. Generate Submission
+
+```bash
+# Coming soon
+python -m src.predict.generate_submission --checkpoint best_model.pt
+```
+
+---
+
+## 🧠 Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         MarchNet                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Team A's Season                    Team B's Season              │
+│  ┌─────────────┐                    ┌─────────────┐              │
+│  │ Game Stats  │ ×30                │ Game Stats  │ ×30          │
+│  └──────┬──────┘                    └──────┬──────┘              │
+│         ▼                                  ▼                     │
+│  ┌─────────────┐                    ┌─────────────┐              │
+│  │Team Encoder │ (shared weights)   │Team Encoder │              │
+│  └──────┬──────┘                    └──────┬──────┘              │
+│         ▼                                  ▼                     │
+│  ┌─────────────┐                    ┌─────────────┐              │
+│  │     GRU     │ Sequential         │     GRU     │              │
+│  │  Processor  │ Processing         │  Processor  │              │
+│  └──────┬──────┘                    └──────┬──────┘              │
+│         │                                  │                     │
+│         ▼                                  ▼                     │
+│     [Embedding]◄───────────────────►[Embedding]                  │
+│     + History      Attention         + History                   │
+│         │              │                  │                      │
+│         └──────────────┼──────────────────┘                      │
+│                        ▼                                         │
+│              ┌─────────────────┐                                 │
+│              │ Prediction Head │                                 │
+│              │   + Shrinkage   │                                 │
+│              └────────┬────────┘                                 │
+│                       ▼                                          │
+│                 P(A wins) ∈ [0.35, 0.65]                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📊 Key Hyperparameters
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Embedding dim | 512 | High-dimensional for nuance |
+| GRU layers | 1 | Simple, avoid overfitting |
+| Attention heads | 8 | Standard transformer default |
+| Dropout | 0.3 | Moderate regularization |
+| Shrinkage | 0.5 | Aggressive pull toward 50% |
+
+---
+
+## 📈 Progress
+
+See `PROJECT_LOG.md` for detailed session-by-session notes.
+
+**Current Status:**
+- ✅ Architecture designed
+- ✅ Core components implemented (Encoder, GRU, Attention, Head)
+- ✅ Preprocessing pipeline
+- 🔲 Training loops
+- 🔲 Validation on Stage 1
+- 🔲 Generate Stage 2 submission
+
+---
+
+## 🛠 Tools Used
+
+- **PyTorch** — Neural network framework
+- **Claude AI** — Architecture design, code generation, debugging
+- **Pandas/NumPy** — Data processing
+
+This project uses AI assistance for development. All tools meet the competition's Reasonableness Standard.
+
+---
+
+## 📄 License
+
+Competition data is CC-BY 4.0. Code is MIT licensed.
