@@ -113,6 +113,38 @@ Log loss measures how confident AND correct your predictions are. If you predict
 
 ---
 
+### Session 2 — [DATE: 2026-03-10]
+**What we did:**
+- Defined full competition strategy — "Respect the chaos"
+- Chose aggressive shrinkage toward 50% (target prediction range: ~35%-65%)
+- Decided to weight current season most heavily, with extra weight on last 4 weeks
+- Mapped out complete feature list across 3 layers:
+  - Layer 1: Current season team profiles (offense, defense, composites, late-season form)
+  - Layer 2: Historical/structural calibration (seeds, rankings, conference strength)
+  - Layer 3: Randomness/calibration (shrinkage, Platt scaling, temperature scaling)
+- Designed full model pipeline (load → profiles → matchups → train → calibrate → submit)
+- Created detailed STRATEGY.md document in docs/
+- Defined training strategy: use 2015-2025 tournaments for training, 2022-2025 for validation
+
+**Key decisions:**
+- Aggressive randomness factor — pull all predictions toward 50%
+- Late-season form gets extra weight (last ~4 weeks, DayNum 100-132)
+- Train on 2015-2025 tournaments (recent era more relevant than early 2000s)
+- Men's model gets Massey Ordinals; women's model compensates with heavier team stats
+- Start with logistic regression baseline, then iterate to XGBoost/LightGBM
+
+**Next session — TODO:**
+- [ ] Upload Kaggle data files (all 35 CSVs)
+- [ ] Build data loading utility (src/utils/data_loader.py)
+- [ ] Initial exploration notebook — load every file, check shapes, spot issues
+- [ ] Build seed-based baseline model (simplest possible: just use seed matchup history)
+- [ ] Generate first Stage 1 submission
+
+**Files created this session:**
+- `docs/STRATEGY.md` — Full strategy document with feature tables, pipeline diagram, and rationale
+
+---
+
 *Add new sessions below this line. Copy the session template:*
 
 ### Session N — [DATE: YYYY-MM-DD]
