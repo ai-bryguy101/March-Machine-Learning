@@ -281,66 +281,144 @@ def normalize_features(
     return normalized, means, stds
 
 
+# Alias for external imports
+NUM_FEATURES = TOTAL_FEATURES_PER_GAME
+
+
+def build_pairwise_games(
+    detailed_results: pd.DataFrame,
+    season: int,
+    means: np.ndarray,
+    stds: np.ndarray,
+) -> List[dict]:
+    """
+    Build pairwise game records for pre-training (one record per game, not per team).
+
+    Each record has features from both teams' perspectives, so the model learns
+    to compare teams head-to-head. Standardized so lower TeamID = team_a.
+
+    Args:
+        detailed_results: DataFrame with detailed game stats
+        season: Season year
+        means, stds: Normalization parameters
+
+    Returns:
+        List of game dicts with features_a, features_b, a_won, margin_a
+    """
+    season_data = detailed_results[detailed_results['Season'] == season].copy()
+    season_data = season_data.sort_values('DayNum')
+
+    games = []
+    for _, row in season_data.iterrows():
+        w_team = row['WTeamID']
+        l_team = row['LTeamID']
+
+        w_features = (compute_game_features(row, 'W') - means) / stds
+        l_features = (compute_game_features(row, 'L') - means) / stds
+
+        # Standardize: lower ID = team_a (matches Kaggle submission format)
+        team_a = min(w_team, l_team)
+        team_b = max(w_team, l_team)
+        a_won = (team_a == w_team)
+        margin = int(row['WScore'] - row['LScore'])
+
+        games.append({
+            'season': season,
+            'day_num': int(row['DayNum']),
+            'team_a': team_a,
+            'team_b': team_b,
+            'features_a': w_features if a_won else l_features,
+            'features_b': l_features if a_won else w_features,
+            'a_won': a_won,
+            'margin_a': margin if a_won else -margin,
+        })
+
+    return games
+
+
 def preprocess_all(data_dir: str, gender: str = 'M') -> dict:
     """
     Run the full preprocessing pipeline for men's or women's data.
-    
+
     Args:
         data_dir: Path to raw data CSVs
         gender: 'M' for men's, 'W' for women's
-        
+
     Returns:
-        Dictionary with game_sequences, tournament_matchups, normalization stats, etc.
+        Dictionary with:
+        - game_sequences: per-team chronological game lists (for GRU processing)
+        - all_games: {season: [pairwise game dicts]} (for pre-training)
+        - tournament_matchups: {season: [matchup dicts]}
+        - normalization stats, teams, seeds, etc.
     """
     prefix = gender
     print(f"\n{'='*60}")
     print(f"  Preprocessing {'Mens' if gender == 'M' else 'Womens'} Data")
     print(f"{'='*60}\n")
-    
+
     print("Loading CSV files...")
     all_data = load_all_data(data_dir)
-    
+
     teams = all_data[f'{prefix}Teams']
     seeds = all_data[f'{prefix}NCAATourneySeeds']
-    
+
     detailed_key = f'{prefix}RegularSeasonDetailedResults'
     tourney_key = f'{prefix}NCAATourneyCompactResults'
-    
+    tourney_detailed_key = f'{prefix}NCAATourneyDetailedResults'
+
     detailed_results = all_data.get(detailed_key)
     tourney_results = all_data.get(tourney_key)
-    
+    tourney_detailed = all_data.get(tourney_detailed_key)
+
     if detailed_results is not None:
         detailed_seasons = sorted(detailed_results['Season'].unique())
         print(f"\nDetailed results available for seasons: {detailed_seasons[0]}-{detailed_seasons[-1]}")
     else:
         detailed_seasons = []
-    
-    # Build game sequences for each season
-    print("\nBuilding game sequences...")
-    game_sequences = {}
+
+    # First pass: collect all features for normalization
+    print("\nCollecting features for normalization...")
     all_features_for_normalization = []
-    
     for season in detailed_seasons:
-        game_sequences[season] = build_season_game_sequences(detailed_results, season)
-        
-        for team_id, games in game_sequences[season].items():
-            for game in games:
-                all_features_for_normalization.append(game['features'])
-        
-        num_teams = len(game_sequences[season])
-        num_games = sum(len(g) for g in game_sequences[season].values()) // 2
-        print(f"  Season {season}: {num_teams} teams, {num_games} games")
-    
-    # Normalize features
-    print("\nNormalizing features...")
+        season_data = detailed_results[detailed_results['Season'] == season]
+        for _, row in season_data.iterrows():
+            all_features_for_normalization.append(compute_game_features(row, 'W'))
+            all_features_for_normalization.append(compute_game_features(row, 'L'))
+
+    # Include tournament games in normalization if available
+    if tourney_detailed is not None:
+        for _, row in tourney_detailed.iterrows():
+            all_features_for_normalization.append(compute_game_features(row, 'W'))
+            all_features_for_normalization.append(compute_game_features(row, 'L'))
+
     all_features_array = np.stack(all_features_for_normalization)
     _, means, stds = normalize_features(all_features_array)
-    
-    for season in game_sequences:
+    print(f"  Computed normalization over {len(all_features_for_normalization):,} game records")
+
+    # Build per-team game sequences (for GRU sequential processing)
+    print("\nBuilding per-team game sequences...")
+    game_sequences = {}
+    for season in detailed_seasons:
+        game_sequences[season] = build_season_game_sequences(detailed_results, season)
+
+        # Normalize the per-team features
         for team_id in game_sequences[season]:
             for game in game_sequences[season][team_id]:
                 game['features'] = (game['features'] - means) / stds
-    
+
+        num_teams = len(game_sequences[season])
+        num_games = sum(len(g) for g in game_sequences[season].values()) // 2
+        print(f"  Season {season}: {num_teams} teams, {num_games} games")
+
+    # Build pairwise game records (for pre-training the simple forward pass)
+    print("\nBuilding pairwise game records for pre-training...")
+    all_games = {}
+    total_games = 0
+    for season in detailed_seasons:
+        all_games[season] = build_pairwise_games(detailed_results, season, means, stds)
+        total_games += len(all_games[season])
+    print(f"  Total pairwise games: {total_games:,}")
+
     # Build tournament matchup labels
     print("\nBuilding tournament matchups...")
     tournament_matchups = {}
@@ -350,16 +428,17 @@ def preprocess_all(data_dir: str, gender: str = 'M') -> dict:
                 matchups = get_tournament_matchups(tourney_results, seeds, season)
                 tournament_matchups[season] = matchups
                 print(f"  Season {season}: {len(matchups)} tournament games")
-    
+
     print(f"\n{'='*60}")
     print(f"  Preprocessing complete!")
     print(f"  Seasons with game data: {len(game_sequences)}")
     print(f"  Seasons with tournament labels: {len(tournament_matchups)}")
     print(f"  Features per game: {TOTAL_FEATURES_PER_GAME}")
     print(f"{'='*60}\n")
-    
+
     return {
         'game_sequences': game_sequences,
+        'all_games': all_games,
         'tournament_matchups': tournament_matchups,
         'feature_means': means,
         'feature_stds': stds,

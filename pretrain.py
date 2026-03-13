@@ -16,9 +16,7 @@ Usage:
 
 import argparse
 import os
-import sys
 import time
-from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -28,11 +26,8 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from tqdm import tqdm
 
-# Add parent to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
-from src.models import MarchNet, count_parameters
-from src.data import preprocess_all, NUM_FEATURES
+from marchnet import MarchNet, count_parameters
+from preprocessing import preprocess_all, NUM_FEATURES
 
 
 class SeasonGameDataset(Dataset):

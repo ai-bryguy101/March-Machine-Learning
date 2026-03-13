@@ -117,51 +117,68 @@ class GameProcessor(nn.Module):
         self,
         initial_embeddings: Dict[int, torch.Tensor],
         season_games: List[dict],
-    ) -> Tuple[Dict[int, torch.Tensor], Dict[int, List[torch.Tensor]]]:
+    ) -> Tuple[Dict[int, torch.Tensor], Dict[int, List[torch.Tensor]], Dict[int, float]]:
         """
         Process an entire season of games chronologically.
-        
+
         Args:
             initial_embeddings: {team_id: initial_embedding_tensor}
             season_games: List of game dicts sorted by DayNum, each with:
                 - 'team_a', 'team_b': int team IDs
                 - 'features_a', 'features_b': game feature tensors
                 - 'a_won': bool
-                
+                - 'margin_a': score margin from A's perspective (optional)
+
         Returns:
             final_embeddings: {team_id: embedding} after full season
             game_histories: {team_id: [game_context_tensors]} for attention
+            momentum: {team_id: float} exponential moving avg of recent performance
         """
         current_embeddings = {
             tid: emb.clone() for tid, emb in initial_embeddings.items()
         }
         game_histories = {tid: [] for tid in initial_embeddings.keys()}
-        
+
+        # Momentum: exponential moving average of normalized score margins
+        # Alpha=0.15 means ~last 6-7 games dominate the signal
+        momentum = {tid: 0.0 for tid in initial_embeddings.keys()}
+        alpha = 0.15
+
         for game in season_games:
             team_a = game['team_a']
             team_b = game['team_b']
-            
+
             if team_a not in current_embeddings or team_b not in current_embeddings:
                 continue
-            
+
             emb_a = current_embeddings[team_a]
             emb_b = current_embeddings[team_b]
             a_won = torch.tensor(1.0 if game['a_won'] else 0.0)
             b_won = torch.tensor(1.0 - a_won)
-            
+
             new_emb_a, context_a = self.process_game(
                 emb_a, emb_b, game['features_a'], a_won
             )
             new_emb_b, context_b = self.process_game(
                 emb_b, emb_a, game['features_b'], b_won
             )
-            
+
             current_embeddings[team_a] = new_emb_a
             current_embeddings[team_b] = new_emb_b
             game_histories[team_a].append(context_a)
             game_histories[team_b].append(context_b)
-        
-        return current_embeddings, game_histories
+
+            # Update momentum with score margin (normalized to [-1, 1] range)
+            # If margin not available, use +0.3 for win, -0.3 for loss
+            margin_a = game.get('margin_a', (0.3 if game['a_won'] else -0.3))
+            margin_b = -margin_a
+            # Normalize margin: divide by 20 and clamp (20-pt win → ~1.0)
+            norm_margin_a = max(-1.0, min(1.0, margin_a / 20.0))
+            norm_margin_b = max(-1.0, min(1.0, margin_b / 20.0))
+            momentum[team_a] = (1 - alpha) * momentum[team_a] + alpha * norm_margin_a
+            momentum[team_b] = (1 - alpha) * momentum[team_b] + alpha * norm_margin_b
+
+        return current_embeddings, game_histories, momentum
 
 
 if __name__ == '__main__':
