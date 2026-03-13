@@ -20,10 +20,10 @@ import torch.nn as nn
 from typing import Dict, List, Tuple, Optional
 import numpy as np
 
-from .team_encoder import TeamEncoder
-from .game_processor import GameProcessor
-from .attention_matchup import BidirectionalMatchupAttention
-from .prediction_head import PredictionHead
+from team_encoder import TeamEncoder
+from game_processor import GameProcessor
+from attention_matchup import BidirectionalMatchupAttention
+from prediction_head import PredictionHead
 
 
 class MarchNet(nn.Module):
@@ -102,43 +102,43 @@ class MarchNet(nn.Module):
         team_ids: List[int],
         season_games: List[dict],
         device: Optional[torch.device] = None,
-    ) -> Tuple[Dict[int, torch.Tensor], Dict[int, torch.Tensor]]:
+    ) -> Tuple[Dict[int, torch.Tensor], Dict[int, torch.Tensor], Dict[int, float]]:
         """
-        Process an entire season to get final team embeddings and histories.
-        
+        Process an entire season to get final team embeddings, histories, and momentum.
+
         Args:
             team_ids: List of all team IDs in the season
             season_games: Chronological list of games from preprocessing
             device: Device to use
-            
+
         Returns:
             final_embeddings: {team_id: embedding}
             game_histories: {team_id: stacked_history_tensor}
+            momentum: {team_id: float} recent form signal
         """
         if device is None:
             device = next(self.parameters()).device
-        
+
         # Initialize all teams with the learnable initial embedding
         initial_embeddings = {
             tid: self.initial_embedding.clone()
             for tid in team_ids
         }
-        
-        # Process season
-        final_embs, histories = self.game_processor.process_season(
-            initial_embeddings, season_games, device
+
+        # Process season (now returns momentum too)
+        final_embs, histories, momentum = self.game_processor.process_season(
+            initial_embeddings, season_games
         )
-        
+
         # Stack histories into tensors
         stacked_histories = {}
         for tid, hist_list in histories.items():
             if hist_list:
                 stacked_histories[tid] = torch.stack(hist_list)
             else:
-                # Team with no games gets a single zero-context
                 stacked_histories[tid] = self.initial_embedding.unsqueeze(0)
-        
-        return final_embs, stacked_histories
+
+        return final_embs, stacked_histories, momentum
     
     def predict_matchup(
         self,
@@ -147,22 +147,24 @@ class MarchNet(nn.Module):
         team_b_embedding: torch.Tensor,
         team_b_history: torch.Tensor,
         seed_diff: torch.Tensor,
+        momentum_diff: Optional[torch.Tensor] = None,
         mask_a: Optional[torch.Tensor] = None,
         mask_b: Optional[torch.Tensor] = None,
         return_attention: bool = False,
     ) -> torch.Tensor:
         """
         Predict P(Team A wins) for a specific matchup.
-        
+
         Args:
             team_a_embedding: A's final season embedding
             team_a_history: A's game history (seq_a, emb_dim)
             team_b_embedding: B's final season embedding
             team_b_history: B's game history (seq_b, emb_dim)
             seed_diff: seed_a - seed_b
+            momentum_diff: momentum_a - momentum_b (recent form signal)
             mask_a, mask_b: Optional padding masks
             return_attention: Whether to return attention weights
-            
+
         Returns:
             prob: P(A wins), or tuple (prob, attn_a, attn_b) if return_attention
         """
@@ -174,10 +176,10 @@ class MarchNet(nn.Module):
             team_b_history.unsqueeze(0) if team_b_history.dim() == 2 else team_b_history,
             mask_a, mask_b,
         )
-        
-        # Predict
-        prob = self.prediction_head(repr_a, repr_b, seed_diff)
-        
+
+        # Predict with momentum signal
+        prob = self.prediction_head(repr_a, repr_b, seed_diff, momentum_diff)
+
         if return_attention:
             return prob, attn_a, attn_b
         return prob
@@ -187,28 +189,30 @@ class MarchNet(nn.Module):
         team_a_features: torch.Tensor,
         team_b_features: torch.Tensor,
         seed_diff: torch.Tensor,
+        momentum_diff: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Simple forward pass for single-game prediction (without season context).
-        
+
         This is useful for quick predictions when you already have team features
         aggregated, but doesn't use the full sequential/attention capabilities.
-        
+
         Args:
             team_a_features: (batch, num_features) aggregated stats for A
             team_b_features: (batch, num_features) aggregated stats for B
             seed_diff: (batch,) seed differences
-            
+            momentum_diff: (batch,) momentum differences (optional)
+
         Returns:
             prob: (batch,) P(A wins)
         """
         # Encode
         emb_a = self.encoder(team_a_features)
         emb_b = self.encoder(team_b_features)
-        
+
         # Skip attention (use embeddings directly as matchup repr)
-        prob = self.prediction_head(emb_a, emb_b, seed_diff)
-        
+        prob = self.prediction_head(emb_a, emb_b, seed_diff, momentum_diff)
+
         return prob
     
     def set_shrinkage(self, shrinkage: float):
